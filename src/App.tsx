@@ -197,12 +197,14 @@ export default function App() {
 function Summary({ language, result, target, onTargetChange }: { language: Language; result: SolverResult; target: number; onTargetChange: (target: number) => void }) {
   const officeDays = result.bestOfficeDays ?? 0;
   const denominator = result.eligibleDays.length;
-  const withinTarget = result.officePercentage !== null && result.officePercentage <= target;
+  const requiredOfficeDays = Math.ceil((denominator * target) / 100);
+  const attendanceMet = result.officePercentage !== null && result.officePercentage >= target;
+  const missingOfficeDays = Math.max(0, requiredOfficeDays - officeDays);
   const progress = Math.min(100, Math.max(0, result.officePercentage ?? 0));
   return (
-    <section className={`summary-card ${result.status === "NO_VALID_SCHEDULE" ? "summary-danger" : withinTarget ? "summary-success" : "summary-warning"}`}>
+    <section className={`summary-card ${result.status === "NO_VALID_SCHEDULE" ? "summary-danger" : attendanceMet ? "summary-success" : "summary-warning"}`}>
       <div className="summary-main">
-        <div className="summary-kicker">{result.status === "NO_VALID_SCHEDULE" ? t(language, "planningBlocked") : withinTarget ? t(language, "optimalSchedule") : t(language, "minimumRequired")}</div>
+        <div className="summary-kicker">{result.status === "NO_VALID_SCHEDULE" ? t(language, "planningBlocked") : attendanceMet ? t(language, "optimalSchedule") : t(language, "minimumRequired")}</div>
         <div className="summary-metrics">
           <div className="summary-title">{result.status === "NO_VALID_SCHEDULE" ? t(language, "noValidSchedule") : `${officeDays} / ${denominator} ${t(language, "officeDays")}`}</div>
           {result.status !== "NO_VALID_SCHEDULE" && <div className="summary-percentage">{result.officePercentage?.toFixed(1)}%</div>}
@@ -211,11 +213,11 @@ function Summary({ language, result, target, onTargetChange }: { language: Langu
         {result.status === "NO_VALID_SCHEDULE" ? (
           <p className="summary-copy">{t(language, "rulesContradict")}</p>
         ) : (
-          <p className="summary-copy"><span>{t(language, "planTarget", { target })}</span><span className="summary-divider">·</span><span>{withinTarget ? t(language, "withinTarget", { target }) : t(language, "targetCannotReached", { target })}</span></p>
+          <p className="summary-copy">{attendanceMet ? t(language, "requiredAttendanceMet") : t(language, "requiredAttendanceMissing", { days: missingOfficeDays, dayLabel: language === "hu" ? "napot" : missingOfficeDays === 1 ? "day" : "days" })}</p>
         )}
         <label className="summary-target-control"><span>{t(language, "attendanceTarget")}</span><input className="target-slider" type="range" min="0" max="100" step="5" value={target} onChange={(event) => onTargetChange(Number(event.target.value))} style={{ "--range-progress": `${target}%` } as CSSProperties} /><strong>{target}%</strong></label>
       </div>
-      <div className="summary-orb">{result.status === "NO_VALID_SCHEDULE" ? "!" : withinTarget ? "✓" : "↗"}</div>
+      <div className="summary-orb">{result.status === "NO_VALID_SCHEDULE" ? "!" : attendanceMet ? "✓" : "↗"}</div>
     </section>
   );
 }
