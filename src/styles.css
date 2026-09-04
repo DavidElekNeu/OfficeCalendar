@@ -443,3 +443,12 @@ html, body { max-width: 100%; overflow-x: hidden; }
   .add-rule-row { grid-template-columns: minmax(0, 1fr); }
   .add-rule-row .add-button { width: 100%; }
 }
+
+.approved-home-swatch { background: #ae82c7; }
+.approved-home-dot { background: #ae82c7; }
+.day-approved-home { background: #f8f0fc; color: #86689a; }
+.day-approved-home .day-status { background: #e7d7f2; color: #704889; }
+.theme-dark .approved-home-swatch { background: #c29ad7; }
+.theme-dark .approved-home-dot { background: #c29ad7; }
+.theme-dark .day-approved-home { background: #493751; color: #e4cbed; }
+.theme-dark .day-approved-home .day-status { background: #704f7d; color: #f1dcf7; }

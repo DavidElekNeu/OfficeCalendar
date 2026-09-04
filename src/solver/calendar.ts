@@ -28,7 +28,10 @@ export function getWeekIndexInMonth(date: Date): number {
 export function getEligibleWorkingDays(input: CalendarInput): EligibleDay[] {
   const monthStart = startOfMonth(input.month);
   const monthEnd = endOfMonth(monthStart);
-  const excluded = new Set([...(input.publicHolidays ?? []), ...(input.vacation ?? [])]);
+  const excluded = new Set([
+    ...(input.publicHolidays ?? []),
+    ...(input.vacation ?? []),
+  ]);
 
   return eachDayOfInterval({ start: monthStart, end: monthEnd })
     .filter((day) => !isWeekend(day) && !excluded.has(dateKey(day)))

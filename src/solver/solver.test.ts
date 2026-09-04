@@ -67,6 +67,24 @@ describe("hybrid office solver", () => {
     expect(result.officePercentage).toBe(0);
   });
 
+  it("keeps approved Home Office in attendance while exempting it from the rules", () => {
+    const result = solveSchedule({
+      month: month("2025-09"),
+      approvedHomeOfficeDays: ["2025-09-02", "2025-09-05", "2025-09-08"],
+      rules: [
+        rule({ type: "MANDATORY_WEEKDAY", weekday: 2, status: "OFFICE" }, "tuesday-office"),
+        rule({ type: "MAX_HOME_OFFICE_DAYS_WEEK", maximum: 0 }, "no-rule-home-office"),
+        rule({ type: "NOT_BOTH_HOME_OFFICE", weekdays: [1, 5] }, "mon-fri-home-office"),
+      ],
+    });
+    expect(result.status).toBe("OPTIMAL");
+    expect(result.eligibleDays.map((day) => day.dateKey)).toEqual(expect.arrayContaining(["2025-09-02", "2025-09-05", "2025-09-08"]));
+    expect(result.schedules[0].days.filter((day) => day.status === "APPROVED_HOME_OFFICE")).toHaveLength(3);
+    expect(result.schedules[0].days.filter((day) => day.status === "HOME_OFFICE")).toHaveLength(0);
+    expect(result.bestOfficeDays).toBe(19);
+    expect(result.officePercentage).toBe(86.4);
+  });
+
   it("keeps manually recorded Office days fixed, while a holiday still excludes the date", () => {
     const result = solveSchedule({ month: month("2025-09"), manualOfficeDays: ["2025-09-01", "2025-09-02"], publicHolidays: ["2025-09-02"], rules: [] });
     expect(result.status).toBe("OPTIMAL");

@@ -3,6 +3,7 @@ import type { Language } from "../i18n";
 
 export const dayStatusSchema = z.enum(["OFFICE", "HOME_OFFICE"]);
 export type DayStatus = z.infer<typeof dayStatusSchema>;
+export type ScheduleDayStatus = DayStatus | "APPROVED_HOME_OFFICE";
 
 export const weekdaySchema = z.number().int().min(0).max(6);
 
@@ -31,6 +32,7 @@ export type CalendarInput = {
   month: Date;
   publicHolidays?: string[];
   vacation?: string[];
+  approvedHomeOfficeDays?: string[];
   manualOfficeDays?: string[];
   manualHomeOfficeDays?: string[];
 };
@@ -44,7 +46,7 @@ export type EligibleDay = {
 };
 
 export type ScheduleDay = EligibleDay & {
-  status: DayStatus;
+  status: ScheduleDayStatus;
   reasons: string[];
 };
 
@@ -76,6 +78,7 @@ export type PlannerScenario = {
   rules: Rule[];
   publicHolidays: string[];
   vacation: string[];
+  approvedHomeOfficeDays: string[];
   manualOfficeDays: string[];
   manualHomeOfficeDays: string[];
 };

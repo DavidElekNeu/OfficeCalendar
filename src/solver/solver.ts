@@ -2,13 +2,15 @@ import { format, getDaysInMonth, isValid, parseISO } from "date-fns";
 import { localeForLanguage, t, type Language } from "../i18n";
 import { getEligibleWorkingDays } from "./calendar";
 import { describeRule, getDirectStatus, isMondayFridayPair, ruleShortLabel, statusLabel } from "./rules";
-import type { CalendarInput, Conflict, DayStatus, EligibleDay, Rule, Schedule, ScheduleDay, SolverResult } from "./types";
+import type { CalendarInput, Conflict, DayStatus, EligibleDay, Rule, Schedule, ScheduleDay, ScheduleDayStatus, SolverResult } from "./types";
 
 type SolverOptions = CalendarInput & { rules: Rule[]; maxSchedules?: number; language?: Language };
-type Assignment = Map<string, DayStatus>;
+type Assignment = Map<string, ScheduleDayStatus>;
 
 export function solveSchedule(options: SolverOptions): SolverResult {
   const eligibleDays = getEligibleWorkingDays(options);
+  const approvedHomeOfficeSet = new Set(options.approvedHomeOfficeDays ?? []);
+  const ruleDays = eligibleDays.filter((day) => !approvedHomeOfficeSet.has(day.dateKey));
   const language = options.language ?? "en";
   const recordedOfficeRules: Rule[] = (options.manualOfficeDays ?? []).map((date) => ({
     id: `manual-office-${date}`,
@@ -29,24 +31,24 @@ export function solveSchedule(options: SolverOptions): SolverResult {
   const activeRules = [...options.rules.filter((rule) => rule.enabled), ...recordedOfficeRules, ...recordedHomeOfficeRules];
   const maxSchedules = options.maxSchedules ?? 5;
   const stats = { nodesVisited: 0, prunedBranches: 0 };
-  const conflicts = detectStaticContradictions(eligibleDays, activeRules, language);
+  const conflicts = detectStaticContradictions(ruleDays, activeRules, language);
 
   if (conflicts.length > 0) {
     return { status: "NO_VALID_SCHEDULE", eligibleDays, schedules: [], bestOfficeDays: null, officePercentage: null, conflicts, stats };
   }
 
   const directAssignments = new Map<string, DayStatus>();
-  for (const day of eligibleDays) {
+  for (const day of ruleDays) {
     const directive = getDirectStatus(day, activeRules);
     if (directive.status) directAssignments.set(day.dateKey, directive.status);
   }
 
-  const directConflict = findDirectContradictions(eligibleDays, activeRules, language);
+  const directConflict = findDirectContradictions(ruleDays, activeRules, language);
   if (directConflict.length > 0) {
     return { status: "NO_VALID_SCHEDULE", eligibleDays, schedules: [], bestOfficeDays: null, officePercentage: null, conflicts: directConflict, stats };
   }
 
-  const variableDays = eligibleDays.filter((day) => !directAssignments.has(day.dateKey));
+  const variableDays = ruleDays.filter((day) => !directAssignments.has(day.dateKey));
   const orderedDays = [...variableDays].sort((a, b) => {
     const aPressure = getDayPressure(a, activeRules);
     const bPressure = getDayPressure(b, activeRules);
@@ -55,6 +57,9 @@ export function solveSchedule(options: SolverOptions): SolverResult {
   let bestOfficeDays = Number.POSITIVE_INFINITY;
   const schedules: Schedule[] = [];
   const assignment: Assignment = new Map(directAssignments);
+  for (const day of eligibleDays) {
+    if (approvedHomeOfficeSet.has(day.dateKey)) assignment.set(day.dateKey, "APPROVED_HOME_OFFICE");
+  }
 
   const search = (index: number) => {
     stats.nodesVisited += 1;
@@ -64,7 +69,7 @@ export function solveSchedule(options: SolverOptions): SolverResult {
       return;
     }
 
-    const partial = evaluatePartial(eligibleDays, assignment, activeRules);
+    const partial = evaluatePartial(ruleDays, assignment, activeRules);
     if (!partial.valid) {
       stats.prunedBranches += 1;
       return;
@@ -77,7 +82,7 @@ export function solveSchedule(options: SolverOptions): SolverResult {
     }
 
     if (index >= orderedDays.length) {
-      const finalEvaluation = evaluateComplete(eligibleDays, assignment, activeRules);
+      const finalEvaluation = evaluateComplete(ruleDays, assignment, activeRules);
       if (!finalEvaluation.valid) {
         stats.prunedBranches += 1;
         return;
@@ -102,8 +107,8 @@ export function solveSchedule(options: SolverOptions): SolverResult {
     assignment.delete(day.dateKey);
   };
 
-  if (eligibleDays.length === 0) {
-    const emptyEvaluation = evaluateComplete(eligibleDays, assignment, activeRules);
+  if (ruleDays.length === 0) {
+    const emptyEvaluation = evaluateComplete(ruleDays, assignment, activeRules);
     if (emptyEvaluation.valid) schedules.push(makeSchedule(eligibleDays, assignment, activeRules, language));
   } else {
     search(0);
@@ -116,7 +121,7 @@ export function solveSchedule(options: SolverOptions): SolverResult {
       schedules: [],
       bestOfficeDays: null,
       officePercentage: null,
-      conflicts: inferConflicts(eligibleDays, activeRules, language),
+      conflicts: inferConflicts(ruleDays, activeRules, language),
       stats,
     };
   }
@@ -272,7 +277,7 @@ function makeSchedule(days: EligibleDay[], assignment: Assignment, rules: Rule[]
   return { days: scheduleDays, officeDays, officePercentage: percentage(officeDays, days.length) };
 }
 
-function reasonsForDay(day: EligibleDay, status: DayStatus, days: EligibleDay[], assignment: Assignment, rules: Rule[], language: Language) {
+function reasonsForDay(day: EligibleDay, status: ScheduleDayStatus, days: EligibleDay[], assignment: Assignment, rules: Rule[], language: Language) {
   const reasons = rules.filter((rule) => {
     if (rule.type === "MANDATORY_WEEKDAY") return rule.weekday === day.weekday && rule.status === status;
     if (rule.type === "FORBIDDEN_WEEKDAY") return rule.weekday === day.weekday && rule.status !== status;
@@ -292,6 +297,7 @@ function reasonsForDay(day: EligibleDay, status: DayStatus, days: EligibleDay[],
     if (reasons.length === 0) reasons.push(t(language, "reasonChosen"));
   }
   if (status === "HOME_OFFICE" && reasons.length === 0) reasons.push(t(language, "reasonKeepsMinimum"));
+  if (status === "APPROVED_HOME_OFFICE") reasons.push(t(language, "reasonApprovedHomeOffice"));
   return reasons;
 }
 

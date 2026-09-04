@@ -16,6 +16,9 @@ import { StatusIcon } from "./components/StatusIcon";
 const today = new Date();
 const defaultMonth = monthKey(today);
 
+const calendarMarkOrder = ["OFFICE", "HOME_OFFICE", "VACATION", "APPROVED_HOME_OFFICE"] as const;
+type CalendarMark = (typeof calendarMarkOrder)[number];
+
 function makeInitialState(): PlannerState {
   const scenario: PlannerScenario = {
     id: "scenario-main",
@@ -24,6 +27,7 @@ function makeInitialState(): PlannerState {
     rules: createDefaultRules(),
     publicHolidays: [],
     vacation: [],
+    approvedHomeOfficeDays: [],
     manualOfficeDays: [],
     manualHomeOfficeDays: [],
   };
@@ -42,18 +46,19 @@ export default function App() {
     rules: scenario.rules,
     publicHolidays: scenario.publicHolidays,
     vacation: scenario.vacation,
+    approvedHomeOfficeDays: scenario.approvedHomeOfficeDays,
     manualOfficeDays: scenario.manualOfficeDays,
     manualHomeOfficeDays: scenario.manualHomeOfficeDays,
     language,
     maxSchedules: 5,
-  }), [month.getTime(), scenario.rules, scenario.publicHolidays, scenario.vacation, scenario.manualOfficeDays, scenario.manualHomeOfficeDays]);
+  }), [month.getTime(), scenario.rules, scenario.publicHolidays, scenario.vacation, scenario.approvedHomeOfficeDays, scenario.manualOfficeDays, scenario.manualHomeOfficeDays]);
   const activeSchedule = result.schedules[Math.min(selectedSchedule, Math.max(0, result.schedules.length - 1))];
 
   useEffect(() => { savePlannerState(state); }, [state]);
   useEffect(() => {
     setSelectedSchedule(0);
     setSelectedDateKey(null);
-  }, [scenario.id, scenario.month, scenario.rules, scenario.publicHolidays, scenario.vacation, scenario.manualOfficeDays, scenario.manualHomeOfficeDays]);
+  }, [scenario.id, scenario.month, scenario.rules, scenario.publicHolidays, scenario.vacation, scenario.approvedHomeOfficeDays, scenario.manualOfficeDays, scenario.manualHomeOfficeDays]);
 
   const updateScenario = (updates: Partial<PlannerScenario>) => {
     setState((current) => ({
@@ -67,7 +72,7 @@ export default function App() {
   };
 
   const newScenario = () => {
-    const next: PlannerScenario = { id: createScenarioId(), name: `${language === "hu" ? "Terv" : "Plan"} ${state.scenarios.length + 1}`, month: scenario.month, rules: createDefaultRules(), publicHolidays: [], vacation: [], manualOfficeDays: [], manualHomeOfficeDays: [] };
+    const next: PlannerScenario = { id: createScenarioId(), name: `${language === "hu" ? "Terv" : "Plan"} ${state.scenarios.length + 1}`, month: scenario.month, rules: createDefaultRules(), publicHolidays: [], vacation: [], approvedHomeOfficeDays: [], manualOfficeDays: [], manualHomeOfficeDays: [] };
     setState((current) => ({ ...current, scenarios: [...current.scenarios, next], preferences: { ...current.preferences, activeScenarioId: next.id } }));
   };
 
@@ -86,39 +91,31 @@ export default function App() {
 
   const moveMonth = (amount: number) => updateScenario({ month: monthKey(addMonths(month, amount)) });
 
-  const markManualAttendance = (dateKey: string, status: "OFFICE" | "HOME_OFFICE") => {
-    if (scenario.publicHolidays.includes(dateKey) || scenario.vacation.includes(dateKey)) return;
-    setSelectedDateKey(dateKey);
-    setState((current) => ({
-      ...current,
-      scenarios: current.scenarios.map((item) => {
-        if (item.id !== scenario.id) return item;
-        const currentDates = status === "OFFICE" ? item.manualOfficeDays : item.manualHomeOfficeDays;
-        const nextDates = currentDates.includes(dateKey) ? currentDates.filter((value) => value !== dateKey) : [...currentDates, dateKey].sort();
-        return {
-          ...item,
-          manualOfficeDays: status === "OFFICE" ? nextDates : item.manualOfficeDays.filter((value) => value !== dateKey),
-          manualHomeOfficeDays: status === "HOME_OFFICE" ? nextDates : item.manualHomeOfficeDays.filter((value) => value !== dateKey),
-        };
-      }),
-    }));
-  };
-
-  const toggleVacation = (dateKey: string) => {
+  const cycleCalendarMark = (dateKey: string) => {
     if (scenario.publicHolidays.includes(dateKey)) return;
     setSelectedDateKey(dateKey);
     setState((current) => ({
       ...current,
       scenarios: current.scenarios.map((item) => {
         if (item.id !== scenario.id) return item;
-        const nextVacation = item.vacation.includes(dateKey)
-          ? item.vacation.filter((value) => value !== dateKey)
-          : [...item.vacation, dateKey].sort();
+        const currentMark: CalendarMark | null = item.manualOfficeDays.includes(dateKey)
+          ? "OFFICE"
+          : item.manualHomeOfficeDays.includes(dateKey)
+            ? "HOME_OFFICE"
+            : item.vacation.includes(dateKey)
+              ? "VACATION"
+              : item.approvedHomeOfficeDays.includes(dateKey)
+                ? "APPROVED_HOME_OFFICE"
+                : null;
+        const currentIndex = currentMark === null ? -1 : calendarMarkOrder.indexOf(currentMark);
+        const nextMark = currentIndex >= calendarMarkOrder.length - 1 ? null : calendarMarkOrder[currentIndex + 1];
+        const withDate = (dates: string[], active: boolean) => active ? [...new Set([...dates, dateKey])].sort() : dates.filter((value) => value !== dateKey);
         return {
           ...item,
-          vacation: nextVacation,
-          manualOfficeDays: item.manualOfficeDays.filter((value) => value !== dateKey),
-          manualHomeOfficeDays: item.manualHomeOfficeDays.filter((value) => value !== dateKey),
+          vacation: withDate(item.vacation, nextMark === "VACATION"),
+          approvedHomeOfficeDays: withDate(item.approvedHomeOfficeDays, nextMark === "APPROVED_HOME_OFFICE"),
+          manualOfficeDays: withDate(item.manualOfficeDays, nextMark === "OFFICE"),
+          manualHomeOfficeDays: withDate(item.manualHomeOfficeDays, nextMark === "HOME_OFFICE"),
         };
       }),
     }));
@@ -178,7 +175,7 @@ export default function App() {
         <div className="content-grid">
           <div className="primary-column">
             <Summary language={language} result={result} target={state.preferences.attendanceTarget} onTargetChange={(target) => updatePreferences({ attendanceTarget: target })} />
-            <CalendarCard language={language} month={month} scenario={scenario} result={result} activeSchedule={activeSchedule} selectedDateKey={selectedDateKey} onMarkOffice={(dateKey) => markManualAttendance(dateKey, "OFFICE")} onMarkHomeOffice={(dateKey) => markManualAttendance(dateKey, "HOME_OFFICE")} onToggleVacation={toggleVacation} />
+            <CalendarCard language={language} month={month} scenario={scenario} result={result} activeSchedule={activeSchedule} selectedDateKey={selectedDateKey} onCycleDay={cycleCalendarMark} />
             {activeSchedule && <ScheduleDetails language={language} schedule={activeSchedule} />}
           </div>
           <div className="secondary-column">
@@ -222,17 +219,18 @@ function Summary({ language, result, target, onTargetChange }: { language: Langu
   );
 }
 
-function CalendarCard({ language, month, scenario, result, activeSchedule, selectedDateKey, onMarkOffice, onMarkHomeOffice, onToggleVacation }: { language: Language; month: Date; scenario: PlannerScenario; result: SolverResult; activeSchedule?: SolverResult["schedules"][number]; selectedDateKey: string | null; onMarkOffice: (dateKey: string) => void; onMarkHomeOffice: (dateKey: string) => void; onToggleVacation: (dateKey: string) => void }) {
+function CalendarCard({ language, month, scenario, result, activeSchedule, selectedDateKey, onCycleDay }: { language: Language; month: Date; scenario: PlannerScenario; result: SolverResult; activeSchedule?: SolverResult["schedules"][number]; selectedDateKey: string | null; onCycleDay: (dateKey: string) => void }) {
   const calendarDays = getMonthCalendarDays(month);
   const byDate = new Map(activeSchedule?.days.map((day) => [day.dateKey, day]) ?? []);
   const eligibleByDate = new Map(result.eligibleDays.map((day) => [day.dateKey, day]));
   const holidaySet = new Set(scenario.publicHolidays);
   const vacationSet = new Set(scenario.vacation);
+  const approvedHomeOfficeSet = new Set(scenario.approvedHomeOfficeDays);
   return (
     <section className="panel calendar-panel">
       <div className="panel-heading calendar-heading">
         <div><div className="panel-kicker">{t(language, "attendanceMap")}</div><h2>{format(month, "MMMM", { locale: localeForLanguage(language) })} {t(language, "overview")}</h2></div>
-        <div className="legend"><span><i className="legend-swatch office-swatch" /> {t(language, "office")}</span><span><i className="legend-swatch home-swatch" /> {t(language, "homeOffice")}</span><span><i className="legend-swatch excluded-swatch" /> {t(language, "excluded")}</span></div>
+        <div className="legend"><span><i className="legend-swatch office-swatch" /> {t(language, "office")}</span><span><i className="legend-swatch home-swatch" /> {t(language, "homeOffice")}</span><span><i className="legend-swatch approved-home-swatch" /> {t(language, "approvedHomeOffice")}</span><span><i className="legend-swatch excluded-swatch" /> {t(language, "excluded")}</span></div>
       </div>
       <div className="calendar-grid calendar-weekdays">{weekdayShortNames(language).slice(1).concat(weekdayShortNames(language).slice(0, 1)).map((name) => <div key={name}>{name}</div>)}</div>
       <div className="calendar-grid calendar-days">
@@ -241,23 +239,26 @@ function CalendarCard({ language, month, scenario, result, activeSchedule, selec
           const scheduleDay = byDate.get(key);
           const eligibleDay = eligibleByDate.get(key);
           const inMonth = isSameMonth(date, month);
+          const approvedHomeOffice = approvedHomeOfficeSet.has(key);
           const excluded = holidaySet.has(key) || vacationSet.has(key);
+          const canCycle = inMonth && !holidaySet.has(key) && Boolean(eligibleDay || vacationSet.has(key) || approvedHomeOffice);
           const manualOffice = scenario.manualOfficeDays.includes(key);
           const manualHomeOffice = scenario.manualHomeOfficeDays.includes(key);
-          const status = scheduleDay?.status ?? (manualOffice ? "OFFICE" : manualHomeOffice ? "HOME_OFFICE" : undefined);
-          const statusClass = status === "OFFICE" ? "day-office" : status === "HOME_OFFICE" ? "day-home" : excluded ? "day-excluded" : "";
-          const statusTitle = scheduleDay ? `${statusLabel(scheduleDay.status, language)}\n\n${language === "hu" ? "Indoklás" : "Reasons"}:\n${scheduleDay.reasons.map((reason) => `• ${reason}`).join("\n")}` : manualOffice ? (language === "hu" ? "Az irodában voltam (manuális felülírás)" : "I was in Office (manual override)") : manualHomeOffice ? (language === "hu" ? "Nem lehetek az irodában (manuális felülírás)" : "I can't be in Office (manual override)") : (language === "hu" ? "Elszámolható munkanap" : "Eligible working day");
+          const status = scheduleDay?.status ?? (manualOffice ? "OFFICE" : manualHomeOffice ? "HOME_OFFICE" : approvedHomeOffice ? "APPROVED_HOME_OFFICE" : undefined);
+          const statusClass = status === "OFFICE" ? "day-office" : status === "HOME_OFFICE" ? "day-home" : status === "APPROVED_HOME_OFFICE" || approvedHomeOffice ? "day-approved-home" : excluded ? "day-excluded" : "";
+          const statusTitle = scheduleDay ? `${statusLabel(scheduleDay.status, language)}\n\n${language === "hu" ? "Indoklás" : "Reasons"}:\n${scheduleDay.reasons.map((reason) => `• ${reason}`).join("\n")}` : manualOffice ? (language === "hu" ? "Az irodában voltam (manuális felülírás)" : "I was in Office (manual override)") : manualHomeOffice ? (language === "hu" ? "Nem lehetek az irodában (manuális felülírás)" : "I can't be in Office (manual override)") : approvedHomeOffice ? t(language, "approvedHomeOffice") : (language === "hu" ? "Elszámolható munkanap" : "Eligible working day");
           return (
-            <button key={key} className={`calendar-day ${!inMonth ? "day-outside" : ""} ${date.getDay() === 0 || date.getDay() === 6 ? "day-weekend" : ""} ${statusClass} ${manualOffice ? "day-manual-office" : ""} ${manualHomeOffice ? "day-manual-home" : ""} ${selectedDateKey === key ? "day-selected" : ""}`} onClick={() => eligibleDay && onMarkHomeOffice(key)} onMouseDown={(event) => { if (event.button === 1 && inMonth && !holidaySet.has(key) && (eligibleDay || vacationSet.has(key))) { event.preventDefault(); onToggleVacation(key); } }} onAuxClick={(event) => { if (event.button === 1) event.preventDefault(); }} onContextMenu={(event) => { if (eligibleDay) { event.preventDefault(); onMarkOffice(key); } }} disabled={!eligibleDay && !vacationSet.has(key)} title={`${format(date, "EEEE, MMMM d")} — ${excluded ? (holidaySet.has(key) ? "Excluded" : "Vacation") : statusTitle}${eligibleDay ? `\n\nLeft click: I can't be in Office\nRight click: I was in Office\n${t(language, "middleClickHint")}` : vacationSet.has(key) ? `\n\n${t(language, "middleClickHint")}` : ""}`}>
+            <button key={key} className={`calendar-day ${!inMonth ? "day-outside" : ""} ${date.getDay() === 0 || date.getDay() === 6 ? "day-weekend" : ""} ${statusClass} ${manualOffice ? "day-manual-office" : ""} ${manualHomeOffice ? "day-manual-home" : ""} ${selectedDateKey === key ? "day-selected" : ""}`} onClick={() => canCycle && onCycleDay(key)} disabled={!canCycle} title={`${format(date, "EEEE, MMMM d")} — ${holidaySet.has(key) ? (language === "hu" ? "Ünnepnap" : "Public holiday") : vacationSet.has(key) ? t(language, "excludedVacation") : approvedHomeOffice ? t(language, "approvedHomeOffice") : statusTitle}${canCycle ? `\n\n${t(language, "calendarClickHint")}` : ""}`}>
               <span className="day-number">{format(date, "d")}</span>
-              {inMonth && eligibleDay && status && <span className="day-status"><StatusIcon type={status === "OFFICE" ? "office" : "home"} /><span className="status-text">{status === "OFFICE" ? t(language, "officeShort") : t(language, "homeShort")}</span></span>}
+              {inMonth && eligibleDay && status && <span className="day-status"><StatusIcon type={status === "OFFICE" ? "office" : status === "HOME_OFFICE" ? "home" : "approvedHomeOffice"} /><span className="status-text">{status === "OFFICE" ? t(language, "officeShort") : status === "HOME_OFFICE" ? t(language, "homeShort") : t(language, "approvedHomeOfficeShort")}</span></span>}
               {inMonth && eligibleDay && !status && <span className="day-status day-unplanned"><StatusIcon type="eligible" /><span className="status-text">{language === "hu" ? "MUNKANAP" : "ELIGIBLE"}</span></span>}
               {inMonth && excluded && !eligibleDay && <span className="day-status excluded-label"><StatusIcon type={holidaySet.has(key) ? "holiday" : "vacation"} /><span className="status-text">{holidaySet.has(key) ? t(language, "excludedHoliday") : t(language, "excludedVacation")}</span></span>}
+              {inMonth && approvedHomeOffice && !eligibleDay && <span className="day-status excluded-label"><StatusIcon type="approvedHomeOffice" /><span className="status-text">{t(language, "approvedHomeOfficeShort")}</span></span>}
             </button>
           );
         })}
       </div>
-      {result.status === "NO_VALID_SCHEDULE" ? <ConflictCallout language={language} conflicts={result.conflicts} /> : <div className="calendar-caption"><span><b>{result.eligibleDays.length}</b> {t(language, "eligibleWorkingDays")}</span><span>{t(language, "leftClickHint")}</span><span>{t(language, "rightClickHint")}</span></div>}
+      {result.status === "NO_VALID_SCHEDULE" ? <ConflictCallout language={language} conflicts={result.conflicts} /> : <div className="calendar-caption"><span><b>{result.eligibleDays.length}</b> {t(language, "eligibleWorkingDays")}</span><span>{t(language, "calendarClickHint")}</span></div>}
     </section>
   );
 }
@@ -322,16 +323,16 @@ function RuleRow({ language, rule, onChange, onRemove }: { language: Language; r
 }
 
 function ExceptionsPanel({ language, scenario, onChange }: { language: Language; scenario: PlannerScenario; onChange: (updates: Partial<PlannerScenario>) => void }) {
-  const [kind, setKind] = useState<"publicHolidays" | "vacation">("publicHolidays");
+  const [kind, setKind] = useState<"publicHolidays" | "vacation" | "approvedHomeOfficeDays">("publicHolidays");
   const [date, setDate] = useState("");
   const add = () => {
     if (!date || scenario[kind].includes(date)) return;
     onChange({ [kind]: [...scenario[kind], date] });
     setDate("");
   };
-  const remove = (key: "publicHolidays" | "vacation", value: string) => onChange({ [key]: scenario[key].filter((item) => item !== value) });
+  const remove = (key: "publicHolidays" | "vacation" | "approvedHomeOfficeDays", value: string) => onChange({ [key]: scenario[key].filter((item) => item !== value) });
   return (
-    <section className="panel exceptions-panel"><div className="panel-heading"><div><div className="panel-kicker">{t(language, "calendarExceptions")}</div><h2>{t(language, "holidaysVacation")}</h2></div></div><div className="exception-add"><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="publicHolidays">{t(language, "publicHoliday")}</option><option value="vacation">{t(language, "vacationDay")}</option></select><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /><button className="add-button" onClick={add} disabled={!date}>{t(language, "add")}</button></div><div className="exception-list">{(["publicHolidays", "vacation"] as const).flatMap((key) => scenario[key].map((value) => <div className="exception-chip" key={`${key}-${value}`}><span className={`exception-dot ${key === "vacation" ? "vacation-dot" : ""}`} />{format(parseISO(value), "MMM d", { locale: localeForLanguage(language) })}<span className="exception-type">{key === "vacation" ? t(language, "vacation") : t(language, "holiday")}</span><button onClick={() => remove(key, value)} aria-label={`${language === "hu" ? "Törlés" : "Remove"} ${value}`}>×</button></div>))}</div></section>
+    <section className="panel exceptions-panel"><div className="panel-heading"><div><div className="panel-kicker">{t(language, "calendarExceptions")}</div></div></div><div className="exception-add"><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="publicHolidays">{t(language, "publicHoliday")}</option><option value="vacation">{t(language, "vacationDay")}</option><option value="approvedHomeOfficeDays">{t(language, "approvedHomeOfficeDay")}</option></select><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /><button className="add-button" onClick={add} disabled={!date}>{t(language, "add")}</button></div><div className="exception-list">{(["publicHolidays", "vacation", "approvedHomeOfficeDays"] as const).flatMap((key) => scenario[key].map((value) => <div className="exception-chip" key={`${key}-${value}`}><span className={`exception-dot ${key === "vacation" ? "vacation-dot" : key === "approvedHomeOfficeDays" ? "approved-home-dot" : ""}`} />{format(parseISO(value), "MMM d", { locale: localeForLanguage(language) })}<span className="exception-type">{key === "vacation" ? t(language, "vacation") : key === "approvedHomeOfficeDays" ? t(language, "approvedHomeOfficeShort") : t(language, "holiday")}</span><button onClick={() => remove(key, value)} aria-label={`${language === "hu" ? "Törlés" : "Remove"} ${value}`}>×</button></div>))}</div></section>
   );
 }
 

@@ -26,6 +26,7 @@ const scenarioSchema = z.object({
   rules: z.array(ruleSchema),
   publicHolidays: z.array(z.string()),
   vacation: z.array(z.string()),
+  approvedHomeOfficeDays: z.array(z.string()).default([]),
   manualOfficeDays: z.array(z.string()).default([]),
   manualHomeOfficeDays: z.array(z.string()).default([]),
 });

@@ -1,8 +1,8 @@
 import { format } from "date-fns";
 import { localeForLanguage, weekdayNames, type Language } from "../i18n";
-import type { EligibleDay, Rule } from "./types";
+import type { EligibleDay, Rule, ScheduleDayStatus } from "./types";
 
-export const statusLabel = (status: "OFFICE" | "HOME_OFFICE", language: Language = "en") => status === "OFFICE" ? (language === "hu" ? "Iroda" : "Office") : (language === "hu" ? "Otthoni munka" : "Home Office");
+export const statusLabel = (status: ScheduleDayStatus, language: Language = "en") => status === "OFFICE" ? (language === "hu" ? "Iroda" : "Office") : status === "HOME_OFFICE" ? (language === "hu" ? "Otthoni munka" : "Home Office") : (language === "hu" ? "Engedélyezett home office" : "Approved Home Office");
 
 export function describeRule(rule: Rule, language: Language = "en"): string {
   const names = weekdayNames(language);

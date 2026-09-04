@@ -1,4 +1,4 @@
-export type StatusIconName = "office" | "home" | "vacation" | "holiday" | "eligible";
+export type StatusIconName = "office" | "home" | "vacation" | "holiday" | "approvedHomeOffice" | "eligible";
 
 export function StatusIcon({ type }: { type: StatusIconName }) {
   const common = { className: `status-icon status-icon-${type}`, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -14,6 +14,9 @@ export function StatusIcon({ type }: { type: StatusIconName }) {
   }
   if (type === "holiday") {
     return <svg {...common}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" /></svg>;
+  }
+  if (type === "approvedHomeOffice") {
+    return <svg {...common}><path d="m3.5 10.5 8.5-7 8.5 7" /><path d="M5.5 9.5V21h13V9.5M9.5 21v-6h5v6" /><path d="m15.5 17 1.7 1.7 3.3-3.5" /></svg>;
   }
   return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 12h8M12 8v8" /></svg>;
 }
