@@ -47,7 +47,7 @@ export function loadPlannerState(fallback: PlannerState): PlannerState {
     if (!parsed.success) return fallback;
     const scenarios = parsed.data.scenarios.map((scenario) => scenario.id === "scenario-main" && legacyDefaultRuleSets.some((legacyRules) => JSON.stringify(scenario.rules) === JSON.stringify(legacyRules))
       ? { ...scenario, rules: createDefaultRules() }
-      : scenario);
+      : { ...scenario, rules: scenario.rules.map((rule) => rule.id === "default-tuesdays" && rule.type === "MANDATORY_WEEKDAY" && rule.weekday === 2 && rule.status === "OFFICE" && !rule.label ? { ...rule, type: "PREFERRED_WEEKDAY" as const } : rule) });
     const activeScenarioId = scenarios.some((scenario) => scenario.id === parsed.data.preferences.activeScenarioId)
       ? parsed.data.preferences.activeScenarioId
       : scenarios[0].id;
@@ -72,7 +72,7 @@ export function createScenarioId() {
 
 export function createDefaultRules(): Rule[] {
   return [
-    { id: "default-tuesdays", enabled: true, type: "MANDATORY_WEEKDAY", weekday: 2, status: "OFFICE" },
+    { id: "default-tuesdays", enabled: true, type: "PREFERRED_WEEKDAY", weekday: 2, status: "OFFICE" },
     { id: "default-monday-friday", enabled: true, type: "NOT_BOTH_HOME_OFFICE", weekdays: [1, 5] },
     { id: "default-home-office-mondays", enabled: true, type: "MAX_HOME_OFFICE_ON_WEEKDAY", weekday: 1, maximum: 2 },
     { id: "default-home-office-fridays", enabled: true, type: "MAX_HOME_OFFICE_ON_WEEKDAY", weekday: 5, maximum: 2 },

@@ -125,3 +125,51 @@ describe("hybrid office solver", () => {
     expect(officeDates(result)).toEqual(["2024-02-01", "2024-02-08", "2024-02-15", "2024-02-22", "2024-02-29"]);
   });
 });
+
+
+describe("preferences and adjacent months", () => {
+  it("prefers Tuesday but permits a mandatory home day", () => {
+    const result = solveSchedule({ month: month("2026-09"), rules: [
+      rule({ type: "PREFERRED_WEEKDAY", weekday: 2, status: "OFFICE" }),
+      rule({ type: "SPECIFIC_DATE", date: "2026-09-08", status: "HOME_OFFICE" }),
+    ] });
+    expect(result.status).toBe("OPTIMAL");
+    expect(officeDates(result)).toEqual(["2026-09-01", "2026-09-15", "2026-09-22", "2026-09-29"]);
+  });
+
+  it("lets a weekly hard maximum override the preference", () => {
+    const result = solveSchedule({ month: month("2026-09"), rules: [
+      rule({ type: "PREFERRED_WEEKDAY", weekday: 2, status: "OFFICE" }),
+      rule({ type: "MAX_OFFICE_DAYS_WEEK", maximum: 0 }),
+    ] });
+    expect(result.status).toBe("OPTIMAL");
+    expect(result.bestOfficeDays).toBe(0);
+  });
+
+  it.each([
+    ["2026-06", "2026-05-29", "2026-06-01"],
+    ["2026-07", "2026-07-31", "2026-08-03"],
+    ["2026-05", "2026-05-29", "2026-06-01"],
+  ])("checks cross-month weekends for %s", (selectedMonth, friday, monday) => {
+    const result = solveSchedule({ month: month(selectedMonth), includeAdjacentDays: true,
+      manualHomeOfficeDays: [friday, monday],
+      rules: [rule({ type: "NOT_BOTH_HOME_OFFICE", weekdays: [1, 5] })] });
+    expect(result.eligibleDays.map((day) => day.dateKey)).toEqual(expect.arrayContaining([friday, monday]));
+    expect(result.status).toBe("NO_VALID_SCHEDULE");
+  });
+
+  it("shows complete weeks but reports selected-month attendance", () => {
+    const result = solveSchedule({ month: month("2026-09"), includeAdjacentDays: true,
+      rules: [rule({ type: "MANDATORY_WEEKDAY", weekday: 1, status: "OFFICE" })] });
+    expect(result.schedules[0].days.find((day) => day.dateKey === "2026-08-31")?.status).toBe("OFFICE");
+    expect(result.bestOfficeDays).toBe(4);
+    expect(result.officePercentage).toBe(18.2);
+  });
+
+  it("keeps weekday caps separate for each month", () => {
+    const result = solveSchedule({ month: month("2026-09"), includeAdjacentDays: true,
+      manualHomeOfficeDays: ["2026-08-31", "2026-09-07"],
+      rules: [rule({ type: "MAX_HOME_OFFICE_ON_WEEKDAY", weekday: 1, maximum: 1 })] });
+    expect(result.status).toBe("OPTIMAL");
+  });
+});

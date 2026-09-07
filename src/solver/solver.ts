@@ -1,4 +1,4 @@
-import { format, getDaysInMonth, isValid, parseISO } from "date-fns";
+import { addDays, isSameMonth, format, getDaysInMonth, isValid, parseISO } from "date-fns";
 import { localeForLanguage, t, type Language } from "../i18n";
 import { getEligibleWorkingDays } from "./calendar";
 import { describeRule, getDirectStatus, isMondayFridayPair, ruleShortLabel, statusLabel } from "./rules";
@@ -55,6 +55,11 @@ export function solveSchedule(options: SolverOptions): SolverResult {
     return bPressure - aPressure || a.dateKey.localeCompare(b.dateKey);
   });
   let bestOfficeDays = Number.POSITIVE_INFINITY;
+  let bestCost = Number.POSITIVE_INFINITY;
+  const preferences = activeRules.filter((rule) => rule.type === "PREFERRED_WEEKDAY");
+  // One missed preference outweighs every possible office day in this planning range.
+  const preferenceWeight = eligibleDays.length + 1;
+  const preferenceCost = () => ruleDays.reduce((sum, day) => sum + preferences.filter((rule) => rule.weekday === day.weekday && assignment.has(day.dateKey) && assignment.get(day.dateKey) !== rule.status).length * preferenceWeight, 0);
   const schedules: Schedule[] = [];
   const assignment: Assignment = new Map(directAssignments);
   for (const day of eligibleDays) {
@@ -64,7 +69,7 @@ export function solveSchedule(options: SolverOptions): SolverResult {
   const search = (index: number) => {
     stats.nodesVisited += 1;
     const assignedOfficeDays = countStatus(assignment, "OFFICE");
-    if (assignedOfficeDays > bestOfficeDays) {
+    if (assignedOfficeDays + preferenceCost() > bestCost) {
       stats.prunedBranches += 1;
       return;
     }
@@ -75,8 +80,17 @@ export function solveSchedule(options: SolverOptions): SolverResult {
       return;
     }
 
-    const remainingOfficeLowerBound = assignedOfficeDays + partial.requiredOfficeDays;
-    if (remainingOfficeLowerBound > bestOfficeDays) {
+    // Even unassigned days have a minimum cost: either attend the office or
+    // miss their preferences. Include it now instead of exploring those costs later.
+    const remainingDayCost = orderedDays.slice(index).reduce((sum, day) => {
+      const dayPreferences = preferences.filter((rule) => rule.weekday === day.weekday);
+      const officeCost = 1 + dayPreferences.filter((rule) => rule.status !== "OFFICE").length * preferenceWeight;
+      const homeCost = dayPreferences.filter((rule) => rule.status !== "HOME_OFFICE").length * preferenceWeight;
+      return sum + Math.min(officeCost, homeCost);
+    }, 0);
+    // These bounds overlap, so take the maximum rather than adding them.
+    const lowerBound = assignedOfficeDays + preferenceCost() + Math.max(partial.requiredOfficeDays, remainingDayCost);
+    if (lowerBound > bestCost || (lowerBound === bestCost && schedules.length >= maxSchedules)) {
       stats.prunedBranches += 1;
       return;
     }
@@ -88,21 +102,23 @@ export function solveSchedule(options: SolverOptions): SolverResult {
         return;
       }
       const schedule = makeSchedule(eligibleDays, assignment, activeRules, language);
-      if (schedule.officeDays < bestOfficeDays) {
+      const cost = schedule.officeDays + preferenceCost();
+      if (cost < bestCost) {
+        bestCost = cost;
         bestOfficeDays = schedule.officeDays;
         schedules.length = 0;
         schedules.push(schedule);
-      } else if (schedule.officeDays === bestOfficeDays && schedules.length < maxSchedules && !containsSchedule(schedules, schedule)) {
+      } else if (cost === bestCost && schedules.length < maxSchedules && !containsSchedule(schedules, schedule)) {
         schedules.push(schedule);
       }
       return;
     }
 
     const day = orderedDays[index];
-    // Home Office is searched first because Office is the objective we minimize.
-    assignment.set(day.dateKey, "HOME_OFFICE");
+    const preferred = preferences.find((rule) => rule.weekday === day.weekday)?.status ?? "HOME_OFFICE";
+    assignment.set(day.dateKey, preferred);
     search(index + 1);
-    assignment.set(day.dateKey, "OFFICE");
+    assignment.set(day.dateKey, preferred === "OFFICE" ? "HOME_OFFICE" : "OFFICE");
     search(index + 1);
     assignment.delete(day.dateKey);
   };
@@ -126,12 +142,18 @@ export function solveSchedule(options: SolverOptions): SolverResult {
     };
   }
 
+  for (const schedule of schedules) {
+    const monthDays = schedule.days.filter((day) => isSameMonth(day.date, options.month));
+    schedule.officeDays = monthDays.filter((day) => day.status === "OFFICE").length;
+    schedule.officePercentage = percentage(schedule.officeDays, monthDays.length);
+  }
+  bestOfficeDays = schedules[0].officeDays;
   return {
     status: "OPTIMAL",
     eligibleDays,
     schedules,
     bestOfficeDays,
-    officePercentage: percentage(bestOfficeDays, eligibleDays.length),
+    officePercentage: schedules[0].officePercentage,
     conflicts: [],
     stats,
   };
@@ -230,7 +252,7 @@ function satisfiesPairRules(days: EligibleDay[], assignment: Assignment, rules: 
     if (isMondayFridayPair(rule)) {
       for (let index = 0; index < weeks.length - 1; index += 1) {
         const friday = weeks[index].find((day) => day.weekday === 5);
-        const followingMonday = weeks[index + 1].find((day) => day.weekday === 1);
+        const followingMonday = friday && days.find((day) => day.dateKey === format(addDays(friday.date, 3), "yyyy-MM-dd"));
         if (!friday || !followingMonday) continue;
         const statuses = [assignment.get(friday.dateKey), assignment.get(followingMonday.dateKey)];
         if (statuses.every((status) => status === "HOME_OFFICE")) return false;
@@ -265,7 +287,7 @@ function satisfiesConsecutiveHomeOffice(days: EligibleDay[], assignment: Assignm
 
 function satisfiesWeekdayHomeOfficeCaps(days: EligibleDay[], assignment: Assignment, rules: Rule[]) {
   const caps = rules.filter((rule): rule is Extract<Rule, { type: "MAX_HOME_OFFICE_ON_WEEKDAY" }> => rule.type === "MAX_HOME_OFFICE_ON_WEEKDAY");
-  return caps.every((rule) => days.filter((day) => day.weekday === rule.weekday && assignment.get(day.dateKey) === "HOME_OFFICE").length <= rule.maximum);
+  return caps.every((rule) => [...new Set(days.map((day) => day.dateKey.slice(0, 7)))].every((month) => days.filter((day) => day.dateKey.startsWith(month) && day.weekday === rule.weekday && assignment.get(day.dateKey) === "HOME_OFFICE").length <= rule.maximum));
 }
 
 function makeSchedule(days: EligibleDay[], assignment: Assignment, rules: Rule[], language: Language): Schedule {
@@ -279,7 +301,7 @@ function makeSchedule(days: EligibleDay[], assignment: Assignment, rules: Rule[]
 
 function reasonsForDay(day: EligibleDay, status: ScheduleDayStatus, days: EligibleDay[], assignment: Assignment, rules: Rule[], language: Language) {
   const reasons = rules.filter((rule) => {
-    if (rule.type === "MANDATORY_WEEKDAY") return rule.weekday === day.weekday && rule.status === status;
+    if (rule.type === "MANDATORY_WEEKDAY" || rule.type === "PREFERRED_WEEKDAY") return rule.weekday === day.weekday && rule.status === status;
     if (rule.type === "FORBIDDEN_WEEKDAY") return rule.weekday === day.weekday && rule.status !== status;
     if (rule.type === "SPECIFIC_DATE") return rule.date === day.dateKey && rule.status === status;
     if (rule.type === "NTH_WEEK_WEEKDAY") return rule.week === day.weekIndex && rule.weekday === day.weekday && rule.status === status;

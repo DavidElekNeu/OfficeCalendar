@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   addMonths,
   format,
@@ -39,6 +39,7 @@ export default function App() {
   const scenario = state.scenarios.find((item) => item.id === state.preferences.activeScenarioId) ?? state.scenarios[0];
   const language = state.preferences.language;
   const month = parseISO(`${scenario.month}-01`);
+  const [showClearDays, setShowClearDays] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const result = useMemo(() => solveSchedule({
@@ -51,6 +52,7 @@ export default function App() {
     manualHomeOfficeDays: scenario.manualHomeOfficeDays,
     language,
     maxSchedules: 5,
+    includeAdjacentDays: true,
   }), [month.getTime(), scenario.rules, scenario.publicHolidays, scenario.vacation, scenario.approvedHomeOfficeDays, scenario.manualOfficeDays, scenario.manualHomeOfficeDays]);
   const activeSchedule = result.schedules[Math.min(selectedSchedule, Math.max(0, result.schedules.length - 1))];
 
@@ -91,6 +93,13 @@ export default function App() {
 
   const moveMonth = (amount: number) => updateScenario({ month: monthKey(addMonths(month, amount)) });
 
+  const clearCalendarMarks = () => {
+    setShowClearDays(false);
+    updateScenario({ manualOfficeDays: [], manualHomeOfficeDays: [], vacation: [], approvedHomeOfficeDays: [] });
+    setSelectedDateKey(null);
+    setSelectedSchedule(0);
+  };
+
   const cycleCalendarMark = (dateKey: string) => {
     if (scenario.publicHolidays.includes(dateKey)) return;
     setSelectedDateKey(dateKey);
@@ -123,6 +132,7 @@ export default function App() {
 
   return (
     <div className={`app-shell min-h-screen text-ink ${state.preferences.darkMode ? "theme-dark" : ""}`}>
+      {showClearDays && <ClearDaysDialog language={language} scenario={scenario} onCancel={() => setShowClearDays(false)} onConfirm={clearCalendarMarks} />}
       <aside className="sidebar flex flex-col">
         <div className="brand-lockup">
           <div className="brand-mark">H</div>
@@ -174,8 +184,8 @@ export default function App() {
 
         <div className="content-grid">
           <div className="primary-column">
-            <Summary language={language} result={result} target={state.preferences.attendanceTarget} onTargetChange={(target) => updatePreferences({ attendanceTarget: target })} />
-            <CalendarCard language={language} month={month} scenario={scenario} result={result} activeSchedule={activeSchedule} selectedDateKey={selectedDateKey} onCycleDay={cycleCalendarMark} />
+            <Summary month={month} language={language} result={result} target={state.preferences.attendanceTarget} onTargetChange={(target) => updatePreferences({ attendanceTarget: target })} />
+            <CalendarCard language={language} month={month} scenario={scenario} result={result} activeSchedule={activeSchedule} selectedDateKey={selectedDateKey} onCycleDay={cycleCalendarMark} onClearDays={() => setShowClearDays(true)} />
             {activeSchedule && <ScheduleDetails language={language} schedule={activeSchedule} />}
           </div>
           <div className="secondary-column">
@@ -191,9 +201,9 @@ export default function App() {
   );
 }
 
-function Summary({ language, result, target, onTargetChange }: { language: Language; result: SolverResult; target: number; onTargetChange: (target: number) => void }) {
+function Summary({ month, language, result, target, onTargetChange }: { month: Date; language: Language; result: SolverResult; target: number; onTargetChange: (target: number) => void }) {
   const officeDays = result.bestOfficeDays ?? 0;
-  const denominator = result.eligibleDays.length;
+  const denominator = result.eligibleDays.filter((day) => isSameMonth(day.date, month)).length;
   const requiredOfficeDays = Math.ceil((denominator * target) / 100);
   const attendanceMet = result.officePercentage !== null && result.officePercentage >= target;
   const missingOfficeDays = Math.max(0, requiredOfficeDays - officeDays);
@@ -210,17 +220,18 @@ function Summary({ language, result, target, onTargetChange }: { language: Langu
         {result.status === "NO_VALID_SCHEDULE" ? (
           <p className="summary-copy">{t(language, "rulesContradict")}</p>
         ) : (
-          <p className="summary-copy">{attendanceMet ? t(language, "requiredAttendanceMet") : t(language, "requiredAttendanceMissing", { days: missingOfficeDays, dayLabel: language === "hu" ? "napot" : missingOfficeDays === 1 ? "day" : "days" })}</p>
+          <p className={`summary-copy ${!attendanceMet ? "summary-attendance-alert" : ""}`} role="status">{!attendanceMet && <span className="attendance-alert-icon" aria-hidden="true">!</span>}<span>{attendanceMet ? t(language, "requiredAttendanceMet") : t(language, "requiredAttendanceMissing", { days: missingOfficeDays, dayLabel: language === "hu" ? "napot" : missingOfficeDays === 1 ? "day" : "days" })}</span></p>
         )}
         <label className="summary-target-control"><span>{t(language, "attendanceTarget")}</span><input className="target-slider" type="range" min="0" max="100" step="5" value={target} onChange={(event) => onTargetChange(Number(event.target.value))} style={{ "--range-progress": `${target}%` } as CSSProperties} /><strong>{target}%</strong></label>
       </div>
-      <div className="summary-orb">{result.status === "NO_VALID_SCHEDULE" ? "!" : attendanceMet ? "✓" : "↗"}</div>
+      <div className="summary-orb">{result.status === "NO_VALID_SCHEDULE" ? "!" : attendanceMet ? "✓" : "!"}</div>
     </section>
   );
 }
 
-function CalendarCard({ language, month, scenario, result, activeSchedule, selectedDateKey, onCycleDay }: { language: Language; month: Date; scenario: PlannerScenario; result: SolverResult; activeSchedule?: SolverResult["schedules"][number]; selectedDateKey: string | null; onCycleDay: (dateKey: string) => void }) {
+function CalendarCard({ language, month, scenario, result, activeSchedule, selectedDateKey, onCycleDay, onClearDays }: { language: Language; month: Date; scenario: PlannerScenario; result: SolverResult; activeSchedule?: SolverResult["schedules"][number]; selectedDateKey: string | null; onCycleDay: (dateKey: string) => void; onClearDays: () => void }) {
   const calendarDays = getMonthCalendarDays(month);
+  const hasManualDays = scenario.manualOfficeDays.length + scenario.manualHomeOfficeDays.length + scenario.vacation.length + scenario.approvedHomeOfficeDays.length > 0;
   const byDate = new Map(activeSchedule?.days.map((day) => [day.dateKey, day]) ?? []);
   const eligibleByDate = new Map(result.eligibleDays.map((day) => [day.dateKey, day]));
   const holidaySet = new Set(scenario.publicHolidays);
@@ -232,6 +243,8 @@ function CalendarCard({ language, month, scenario, result, activeSchedule, selec
         <div><div className="panel-kicker">{t(language, "attendanceMap")}</div><h2>{format(month, "MMMM", { locale: localeForLanguage(language) })} {t(language, "overview")}</h2></div>
         <div className="legend"><span><i className="legend-swatch office-swatch" /> {t(language, "office")}</span><span><i className="legend-swatch home-swatch" /> {t(language, "homeOffice")}</span><span><i className="legend-swatch approved-home-swatch" /> {t(language, "approvedHomeOffice")}</span><span><i className="legend-swatch excluded-swatch" /> {t(language, "excluded")}</span></div>
       </div>
+      <div className="calendar-actions"><button className="clear-days-button" onClick={onClearDays} disabled={!hasManualDays}>{t(language, "clearYourDays")}</button></div>
+      <p className="calendar-caption">{language === "hu" ? "A szomszédos hónapok látható napjai is szerkeszthetők, és részt vesznek a szabályok ellenőrzésében. Az összesítés csak a kiválasztott hónapra vonatkozik." : "Visible dates from adjacent months are editable and included in rule checks. Attendance totals cover only the selected month."}</p>
       <div className="calendar-grid calendar-weekdays">{weekdayShortNames(language).slice(1).concat(weekdayShortNames(language).slice(0, 1)).map((name) => <div key={name}>{name}</div>)}</div>
       <div className="calendar-grid calendar-days">
         {calendarDays.map((date) => {
@@ -241,7 +254,7 @@ function CalendarCard({ language, month, scenario, result, activeSchedule, selec
           const inMonth = isSameMonth(date, month);
           const approvedHomeOffice = approvedHomeOfficeSet.has(key);
           const excluded = holidaySet.has(key) || vacationSet.has(key);
-          const canCycle = inMonth && !holidaySet.has(key) && Boolean(eligibleDay || vacationSet.has(key) || approvedHomeOffice);
+          const canCycle = !holidaySet.has(key) && Boolean(eligibleDay || vacationSet.has(key) || approvedHomeOffice);
           const manualOffice = scenario.manualOfficeDays.includes(key);
           const manualHomeOffice = scenario.manualHomeOfficeDays.includes(key);
           const status = scheduleDay?.status ?? (manualOffice ? "OFFICE" : manualHomeOffice ? "HOME_OFFICE" : approvedHomeOffice ? "APPROVED_HOME_OFFICE" : undefined);
@@ -249,16 +262,16 @@ function CalendarCard({ language, month, scenario, result, activeSchedule, selec
           const statusTitle = scheduleDay ? `${statusLabel(scheduleDay.status, language)}\n\n${language === "hu" ? "Indoklás" : "Reasons"}:\n${scheduleDay.reasons.map((reason) => `• ${reason}`).join("\n")}` : manualOffice ? (language === "hu" ? "Az irodában voltam (manuális felülírás)" : "I was in Office (manual override)") : manualHomeOffice ? (language === "hu" ? "Nem lehetek az irodában (manuális felülírás)" : "I can't be in Office (manual override)") : approvedHomeOffice ? t(language, "approvedHomeOffice") : (language === "hu" ? "Elszámolható munkanap" : "Eligible working day");
           return (
             <button key={key} className={`calendar-day ${!inMonth ? "day-outside" : ""} ${date.getDay() === 0 || date.getDay() === 6 ? "day-weekend" : ""} ${statusClass} ${manualOffice ? "day-manual-office" : ""} ${manualHomeOffice ? "day-manual-home" : ""} ${selectedDateKey === key ? "day-selected" : ""}`} onClick={() => canCycle && onCycleDay(key)} disabled={!canCycle} title={`${format(date, "EEEE, MMMM d")} — ${holidaySet.has(key) ? (language === "hu" ? "Ünnepnap" : "Public holiday") : vacationSet.has(key) ? t(language, "excludedVacation") : approvedHomeOffice ? t(language, "approvedHomeOffice") : statusTitle}${canCycle ? `\n\n${t(language, "calendarClickHint")}` : ""}`}>
-              <span className="day-number">{format(date, "d")}</span>
-              {inMonth && eligibleDay && status && <span className="day-status"><StatusIcon type={status === "OFFICE" ? "office" : status === "HOME_OFFICE" ? "home" : "approvedHomeOffice"} /><span className="status-text">{status === "OFFICE" ? t(language, "officeShort") : status === "HOME_OFFICE" ? t(language, "homeShort") : t(language, "approvedHomeOfficeShort")}</span></span>}
-              {inMonth && eligibleDay && !status && <span className="day-status day-unplanned"><StatusIcon type="eligible" /><span className="status-text">{language === "hu" ? "MUNKANAP" : "ELIGIBLE"}</span></span>}
-              {inMonth && excluded && !eligibleDay && <span className="day-status excluded-label"><StatusIcon type={holidaySet.has(key) ? "holiday" : "vacation"} /><span className="status-text">{holidaySet.has(key) ? t(language, "excludedHoliday") : t(language, "excludedVacation")}</span></span>}
-              {inMonth && approvedHomeOffice && !eligibleDay && <span className="day-status excluded-label"><StatusIcon type="approvedHomeOffice" /><span className="status-text">{t(language, "approvedHomeOfficeShort")}</span></span>}
+              <span className="day-number">{format(date, inMonth ? "d" : "MMM d", { locale: localeForLanguage(language) })}</span>
+              {eligibleDay && status && <span className="day-status"><StatusIcon type={status === "OFFICE" ? "office" : status === "HOME_OFFICE" ? "home" : "approvedHomeOffice"} /><span className="status-text">{status === "OFFICE" ? t(language, "officeShort") : status === "HOME_OFFICE" ? t(language, "homeShort") : t(language, "approvedHomeOfficeShort")}</span></span>}
+              {eligibleDay && !status && <span className="day-status day-unplanned"><StatusIcon type="eligible" /><span className="status-text">{language === "hu" ? "MUNKANAP" : "ELIGIBLE"}</span></span>}
+              {excluded && !eligibleDay && <span className="day-status excluded-label"><StatusIcon type={holidaySet.has(key) ? "holiday" : "vacation"} /><span className="status-text">{holidaySet.has(key) ? t(language, "excludedHoliday") : t(language, "excludedVacation")}</span></span>}
+              {approvedHomeOffice && !eligibleDay && <span className="day-status excluded-label"><StatusIcon type="approvedHomeOffice" /><span className="status-text">{t(language, "approvedHomeOfficeShort")}</span></span>}
             </button>
           );
         })}
       </div>
-      {result.status === "NO_VALID_SCHEDULE" ? <ConflictCallout language={language} conflicts={result.conflicts} /> : <div className="calendar-caption"><span><b>{result.eligibleDays.length}</b> {t(language, "eligibleWorkingDays")}</span><span>{t(language, "calendarClickHint")}</span></div>}
+      {result.status === "NO_VALID_SCHEDULE" ? <ConflictCallout language={language} conflicts={result.conflicts} /> : <div className="calendar-caption"><span><b>{result.eligibleDays.filter((day) => isSameMonth(day.date, month)).length}</b> {t(language, "eligibleWorkingDays")}</span><span>{t(language, "calendarClickHint")}</span></div>}
     </section>
   );
 }
@@ -292,7 +305,7 @@ function RulePanel({ language, month, rules, onChange }: { language: Language; m
         <div className="rule-list">
           {rules.map((rule) => <RuleRow key={rule.id} language={language} rule={rule} onChange={(updates) => updateRule(rule.id, updates)} onRemove={() => removeRule(rule.id)} />)}
         </div>
-        <div className="add-rule-row"><select value={adding} onChange={(event) => setAdding(event.target.value as Rule["type"] | "")} aria-label={t(language, "addRule")}><option value="">{t(language, "addRule")}</option><option value="MANDATORY_WEEKDAY">{t(language, "mandatoryWeekday")}</option><option value="FORBIDDEN_WEEKDAY">{t(language, "forbiddenWeekday")}</option><option value="SPECIFIC_DATE">{t(language, "specificDate")}</option><option value="NTH_WEEK_WEEKDAY">{t(language, "nthWeekWeekday")}</option><option value="MIN_OFFICE_DAYS_WEEK">{t(language, "minimumOfficeDaysWeek")}</option><option value="MAX_OFFICE_DAYS_WEEK">{t(language, "maximumOfficeDaysWeek")}</option><option value="MAX_HOME_OFFICE_DAYS_WEEK">{t(language, "maximumHomeOfficeDaysWeek")}</option><option value="MAX_HOME_OFFICE_ON_WEEKDAY">{t(language, "maximumHomeOfficeOnWeekday")}</option><option value="NOT_BOTH_HOME_OFFICE">{t(language, "notBothHomeOffice")}</option><option value="MAX_CONSECUTIVE_HOME_OFFICE">{t(language, "maxConsecutiveHomeOffice")}</option></select><button className="add-button" onClick={addRule} disabled={!adding}>{t(language, "add")}</button></div>
+        <div className="add-rule-row"><select value={adding} onChange={(event) => setAdding(event.target.value as Rule["type"] | "")} aria-label={t(language, "addRule")}><option value="">{t(language, "addRule")}</option><option value="PREFERRED_WEEKDAY">{t(language, "preferredWeekday")}</option><option value="MANDATORY_WEEKDAY">{t(language, "mandatoryWeekday")}</option><option value="FORBIDDEN_WEEKDAY">{t(language, "forbiddenWeekday")}</option><option value="SPECIFIC_DATE">{t(language, "specificDate")}</option><option value="NTH_WEEK_WEEKDAY">{t(language, "nthWeekWeekday")}</option><option value="MIN_OFFICE_DAYS_WEEK">{t(language, "minimumOfficeDaysWeek")}</option><option value="MAX_OFFICE_DAYS_WEEK">{t(language, "maximumOfficeDaysWeek")}</option><option value="MAX_HOME_OFFICE_DAYS_WEEK">{t(language, "maximumHomeOfficeDaysWeek")}</option><option value="MAX_HOME_OFFICE_ON_WEEKDAY">{t(language, "maximumHomeOfficeOnWeekday")}</option><option value="NOT_BOTH_HOME_OFFICE">{t(language, "notBothHomeOffice")}</option><option value="MAX_CONSECUTIVE_HOME_OFFICE">{t(language, "maxConsecutiveHomeOffice")}</option></select><button className="add-button" onClick={addRule} disabled={!adding}>{t(language, "add")}</button></div>
       </>}
     </section>
   );
@@ -304,8 +317,9 @@ function RuleRow({ language, rule, onChange, onRemove }: { language: Language; r
       <button className={`toggle ${rule.enabled ? "toggle-on" : ""}`} onClick={() => onChange({ enabled: !rule.enabled })} aria-label={language === "hu" ? (rule.enabled ? "Szabály kikapcsolása" : "Szabály bekapcsolása") : `${rule.enabled ? "Disable" : "Enable"} rule`}>{rule.enabled ? "✓" : ""}</button>
       <div className="rule-body">
         <div className="rule-label">{ruleShortLabel(rule, language)}</div>
+        {rule.type === "PREFERRED_WEEKDAY" && <div className="rule-inline-text">{language === "hu" ? "Erős preferencia: a kötelező szabályok és a kézi beállítások elsőbbséget élveznek." : "Strong preference: mandatory rules and manual entries take priority."}</div>}
         <div className="rule-controls">
-          {rule.type === "MANDATORY_WEEKDAY" && <><select value={rule.weekday} onChange={(event) => onChange({ weekday: Number(event.target.value) })}>{weekdayOptions(language)}</select><StatusSelect language={language} value={rule.status} onChange={(status) => onChange({ status })} /></>}
+          {(rule.type === "MANDATORY_WEEKDAY" || rule.type === "PREFERRED_WEEKDAY") && <><select value={rule.weekday} onChange={(event) => onChange({ weekday: Number(event.target.value) })}>{weekdayOptions(language)}</select><StatusSelect language={language} value={rule.status} onChange={(status) => onChange({ status })} /></>}
           {rule.type === "FORBIDDEN_WEEKDAY" && <><select value={rule.weekday} onChange={(event) => onChange({ weekday: Number(event.target.value) })}>{weekdayOptions(language)}</select><span className="rule-inline-text">{t(language, "cannotBe")}</span><StatusSelect language={language} value={rule.status} onChange={(status) => onChange({ status })} /></>}
           {rule.type === "SPECIFIC_DATE" && <><input type="date" value={rule.date} onChange={(event) => onChange({ date: event.target.value })} /><StatusSelect language={language} value={rule.status} onChange={(status) => onChange({ status })} /></>}
           {rule.type === "NTH_WEEK_WEEKDAY" && <><select value={rule.week} onChange={(event) => onChange({ week: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6].map((value) => <option key={value} value={value}>{language === "hu" ? `${value}. hét` : `${value}${value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"} week`}</option>)}</select><select value={rule.weekday} onChange={(event) => onChange({ weekday: Number(event.target.value) })}>{weekdayOptions(language)}</select><StatusSelect language={language} value={rule.status} onChange={(status) => onChange({ status })} /></>}
@@ -364,6 +378,7 @@ function weekdayOptions(language: Language = "en") {
 function makeRule(type: Rule["type"], month = defaultMonth): Rule {
   const id = createRuleId();
   switch (type) {
+    case "PREFERRED_WEEKDAY":
     case "MANDATORY_WEEKDAY": return { id, enabled: true, type, weekday: 2, status: "OFFICE" };
     case "FORBIDDEN_WEEKDAY": return { id, enabled: true, type, weekday: 3, status: "OFFICE" };
     case "SPECIFIC_DATE": return { id, enabled: true, type, date: month + "-01", status: "OFFICE" };
@@ -375,4 +390,29 @@ function makeRule(type: Rule["type"], month = defaultMonth): Rule {
     case "NOT_BOTH_HOME_OFFICE": return { id, enabled: true, type, weekdays: [1, 5] };
     case "MAX_CONSECUTIVE_HOME_OFFICE": return { id, enabled: true, type, maximum: 3 };
   }
+}
+
+function ClearDaysDialog({ language, scenario, onCancel, onConfirm }: { language: Language; scenario: PlannerScenario; onCancel: () => void; onConfirm: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const count = new Set([...scenario.manualOfficeDays, ...scenario.manualHomeOfficeDays, ...scenario.vacation, ...scenario.approvedHomeOfficeDays]).size;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => { dialog?.close(); };
+  }, []);
+  return (
+    <dialog ref={dialogRef} className="clear-days-dialog" aria-labelledby="clear-days-title" aria-describedby="clear-days-description" onCancel={(event) => { event.preventDefault(); onCancel(); }}>
+      <div className="clear-dialog-content">
+        <div className="clear-dialog-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg></div>
+        <h2 id="clear-days-title">{t(language, "clearDaysTitle")}</h2>
+        <p id="clear-days-description">{t(language, "clearDaysDescription")}</p>
+        <div className="clear-dialog-summary"><span>{scenario.name}</span><strong>{t(language, "clearDaysCount", { count })}</strong><small>{t(language, "clearDaysScope")}</small></div>
+        <p className="clear-dialog-note">{t(language, "clearDaysNote")}</p>
+      </div>
+      <div className="clear-dialog-actions">
+        <button className="clear-dialog-cancel" autoFocus onClick={onCancel}>{t(language, "keepMyDays")}</button>
+        <button className="clear-dialog-confirm" onClick={onConfirm}>{t(language, "clearYourDays")}</button>
+      </div>
+    </dialog>
+  );
 }

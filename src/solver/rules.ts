@@ -8,6 +8,7 @@ export function describeRule(rule: Rule, language: Language = "en"): string {
   const names = weekdayNames(language);
   const isHungarian = language === "hu";
   switch (rule.type) {
+    case "PREFERRED_WEEKDAY": return isHungarian ? `Ajánlott hétköznap: ${names[rule.weekday]} · ${statusLabel(rule.status, language)}` : `Preferred weekday: ${names[rule.weekday]} · ${statusLabel(rule.status, language)}`;
     case "MANDATORY_WEEKDAY": return isHungarian ? `${names[rule.weekday]} kötelezően ${statusLabel(rule.status, language)}` : `${names[rule.weekday]} is mandatory ${statusLabel(rule.status, language)}`;
     case "FORBIDDEN_WEEKDAY": return isHungarian ? `${names[rule.weekday]} nem lehet ${statusLabel(rule.status, language)}` : `${names[rule.weekday]} cannot be ${statusLabel(rule.status, language)}`;
     case "SPECIFIC_DATE": return isHungarian ? `${formatDateLabel(rule.date, language)} dátumon ${statusLabel(rule.status, language)}` : `${formatDateLabel(rule.date, language)} must be ${statusLabel(rule.status, language)}`;

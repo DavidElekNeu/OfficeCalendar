@@ -95,7 +95,7 @@ h2 { font-size: 17px; font-weight: 690; letter-spacing: -.035em; margin-top: 5px
 .day-number { display: block; font-size: 12px; font-weight: 700; }
 .day-status { display: inline-block; margin-top: 16px; padding: 4px 6px; border-radius: 4px; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
 .day-office { background: #e1f2f7; color: #1a617b; }.day-office .day-status { background: #66bddb; color: #064866; }.day-home { background: #f8fbfc; }.day-home .day-status { background: #e9f1f4; color: #708993; }.day-excluded { background: #fbf1ed; color: #c69785; }.day-excluded .day-status { background: #f5ded4; color: #aa705b; }
-.day-outside { background: #f7fafb; color: #afc2ca; }.day-outside .day-status { display: none; }.day-selected { box-shadow: inset 0 0 0 2px #1682ab !important; z-index: 2; }
+.day-outside { background: #f7fafb; color: #afc2ca; }.day-outside { opacity: .75; }.day-selected { box-shadow: inset 0 0 0 2px #1682ab !important; z-index: 2; }
 .excluded-label { font-size: 7px; }
 .calendar-caption { display: flex; justify-content: space-between; color: #8ca3ad; font-size: 10px; padding-top: 14px; }.calendar-caption b { color: #426b7b; }
 .count-pill { white-space: nowrap; color: #507282; background: #edf5f8; border-radius: 20px; padding: 6px 9px; font-size: 10px; font-weight: 700; }
@@ -452,3 +452,48 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .theme-dark .approved-home-dot { background: #c29ad7; }
 .theme-dark .day-approved-home { background: #493751; color: #e4cbed; }
 .theme-dark .day-approved-home .day-status { background: #704f7d; color: #f1dcf7; }
+
+.calendar-actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.clear-days-button { border: 1px solid #bd6558; border-radius: 8px; background: transparent; color: #a44639; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.clear-days-button:hover:not(:disabled) { background: #fce9e6; }
+.clear-days-button:disabled { opacity: .45; cursor: not-allowed; }
+.clear-days-button:focus-visible { outline: 2px solid #1682ab; outline-offset: 3px; }
+.theme-dark .clear-days-button { color: #f0a99d; border-color: #b8766b; }
+.theme-dark .clear-days-button:hover:not(:disabled) { background: #513a3a; }
+
+.clear-days-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); margin: auto; padding: 0; overflow: auto; border: 1px solid var(--color-line, #dce8ec); border-radius: 22px; background: var(--color-panel, #fff); color: var(--color-ink, #173e50); box-shadow: 0 24px 90px rgba(3, 28, 42, .3); }
+.clear-days-dialog::backdrop { background: rgba(4, 26, 38, .52); backdrop-filter: blur(5px); }
+.clear-dialog-content { padding: 30px 30px 24px; }
+.clear-dialog-icon { width: 48px; height: 48px; display: grid; place-items: center; margin-bottom: 20px; border: 1px solid #f2d3cc; border-radius: 14px; background: #fff0ec; color: #b84c3c; }
+.clear-dialog-icon svg { width: 25px; height: 25px; }
+.clear-days-dialog h2 { font-size: 24px; font-weight: 750; letter-spacing: -.04em; line-height: 1.25; margin: 0 0 12px; }
+.clear-days-dialog p { font-size: 14px; line-height: 1.65; color: var(--color-muted, #647f8b); margin: 0; }
+.clear-dialog-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; margin: 22px 0 16px; padding: 15px 16px; border: 1px solid var(--color-line, #dce8ec); background: var(--color-paper, #f7fafb); border-radius: 12px; font-size: 13px; }
+.clear-dialog-summary span { overflow-wrap: anywhere; font-weight: 650; }
+.clear-dialog-summary strong { font-weight: 650; }
+.clear-dialog-summary small { grid-column: 1 / -1; color: var(--color-muted, #647f8b); font-size: 12px; }
+.clear-days-dialog .clear-dialog-note { font-size: 12px; }
+.clear-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 20px 30px; border-top: 1px solid var(--color-line, #dce8ec); }
+.clear-dialog-actions button { min-height: 42px; padding: 10px 16px; border-radius: 10px; font-size: 13px; font-weight: 650; cursor: pointer; transition: background .15s; }
+.clear-dialog-cancel { border: 1px solid var(--color-line, #dce8ec); background: transparent; color: inherit; }
+.clear-dialog-cancel:hover { background: var(--color-paper, #f7fafb); }
+.clear-dialog-confirm { border: 1px solid #b84c3c; background: #b84c3c; color: #fff; }
+.clear-dialog-confirm:hover { background: #9c3c2e; }
+.clear-dialog-actions button:focus-visible { outline: 3px solid #58b5d3; outline-offset: 3px; }
+.theme-dark .clear-dialog-icon { background: #513a3a; border-color: #80534c; color: #f0a99d; }
+@media (max-width: 480px) { .clear-dialog-content { padding: 24px; } .clear-dialog-actions { padding: 18px 24px; flex-direction: column; } .clear-dialog-actions button { width: 100%; } }
+
+/* Attendance below target should read as a warning in either theme. */
+.summary-card.summary-warning { border-left: 5px solid #d45124; background: #fff9f3; }
+.summary-warning .summary-kicker { color: #a33413; font-size: 12px; font-weight: 800; }
+.summary-warning .summary-percentage { color: #b43d18; }
+.summary-warning .summary-progress > div { background: #d45124; }
+.summary-warning .summary-orb { background: #d45124; color: #fff; font-size: 26px; }
+.summary-warning .summary-attendance-alert { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-top: 14px; border: 1px solid #efb18e; border-radius: 10px; background: #ffeadb; color: #8f2c0c; font-size: 14px; font-weight: 750; line-height: 1.5; }
+.attendance-alert-icon { display: grid; place-items: center; flex: 0 0 22px; height: 22px; border-radius: 50%; background: #ac3813; color: #fff; font-size: 15px; font-weight: 800; }
+.theme-dark .summary-card.summary-warning { background: #3a302b; border-left-color: #ff995b; }
+.theme-dark .summary-warning .summary-kicker, .theme-dark .summary-warning .summary-percentage { color: #ffb47f; }
+.theme-dark .summary-warning .summary-progress > div { background: #ff995b; }
+.theme-dark .summary-warning .summary-orb { background: #ff995b; color: #48200f; }
+.theme-dark .summary-warning .summary-attendance-alert { background: #563321; border-color: #b7754b; color: #ffe1c6; }
+.theme-dark .attendance-alert-icon { background: #ffb47f; color: #48200f; }

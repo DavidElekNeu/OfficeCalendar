@@ -14,6 +14,7 @@ const baseRuleSchema = z.object({
 });
 
 export const ruleSchema = z.discriminatedUnion("type", [
+  baseRuleSchema.extend({ type: z.literal("PREFERRED_WEEKDAY"), weekday: weekdaySchema, status: dayStatusSchema }),
   baseRuleSchema.extend({ type: z.literal("MANDATORY_WEEKDAY"), weekday: weekdaySchema, status: dayStatusSchema }),
   baseRuleSchema.extend({ type: z.literal("FORBIDDEN_WEEKDAY"), weekday: weekdaySchema, status: dayStatusSchema }),
   baseRuleSchema.extend({ type: z.literal("SPECIFIC_DATE"), date: z.string(), status: dayStatusSchema }),
@@ -30,6 +31,7 @@ export type Rule = z.infer<typeof ruleSchema>;
 
 export type CalendarInput = {
   month: Date;
+  includeAdjacentDays?: boolean;
   publicHolidays?: string[];
   vacation?: string[];
   approvedHomeOfficeDays?: string[];

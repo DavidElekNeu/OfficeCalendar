@@ -33,7 +33,7 @@ export function getEligibleWorkingDays(input: CalendarInput): EligibleDay[] {
     ...(input.vacation ?? []),
   ]);
 
-  return eachDayOfInterval({ start: monthStart, end: monthEnd })
+  return (input.includeAdjacentDays ? getMonthCalendarDays(input.month) : eachDayOfInterval({ start: monthStart, end: monthEnd }))
     .filter((day) => !isWeekend(day) && !excluded.has(dateKey(day)))
     .map((date) => ({
       date,
@@ -45,8 +45,10 @@ export function getEligibleWorkingDays(input: CalendarInput): EligibleDay[] {
 }
 
 export function getMonthCalendarDays(month: Date): Date[] {
-  const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
-  const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
+  const first = startOfMonth(month);
+  const start = startOfWeek(getDay(first) === 1 ? addDays(first, -3) : first, { weekStartsOn: 1 });
+  const last = endOfMonth(month);
+  const end = endOfWeek([5, 6, 0].includes(getDay(last)) ? addDays(last, 3) : last, { weekStartsOn: 1 });
   return eachDayOfInterval({ start, end });
 }
 
